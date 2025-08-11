@@ -1,34 +1,31 @@
-import { useState } from "react";
+import { Suspense, lazy } from "react";
 import reactLogo from "./assets/react.svg";
-import viteLogo from "/vite.svg";
-import "./App.css";
+
+const lazyComponent = <T,>(f: () => Promise<React.ComponentType<T>>) =>
+  lazy(async () => ({ default: await f() }));
+
+const Card = lazyComponent(async () => (await import("@/Card")).Card);
 
 export function App() {
-  const [count, setCount] = useState(0);
-
   return (
-    <>
+    <main>
       <div>
         <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
+          <img src="/vite.svg" className="logo" alt="Vite logo" />
         </a>
-        <a href="https://react.dev" target="_blank">
+        <a href="https://reactjs.org" target="_blank">
           <img src={reactLogo} className="logo react" alt="React logo" />
         </a>
       </div>
       <h1>Vite + React</h1>
-      <div className="pt-0 pb-4"></div>
-      <div className="pt-0 pb-4">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
+
+      <Suspense fallback={<p>Loading card component...</p>}>
+        <Card />
+      </Suspense>
+
       <p className="read-the-docs">
         Click on the Vite and React logos to learn more
       </p>
-    </>
+    </main>
   );
 }
