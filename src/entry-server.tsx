@@ -1,35 +1,72 @@
-import { StrictMode } from "react";
+import { pipeline } from "node:stream/promises";
 import {
-  type RenderToPipeableStreamOptions,
-  renderToPipeableStream,
-} from "react-dom/server";
-import { App } from "./App";
+  RouterServer,
+  createRequestHandler,
+  renderRouterToStream,
+} from "@tanstack/react-router/ssr/server";
+import { createRouter } from "./router";
+import type express from "express";
+import "./fetch-polyfill";
 
-/*
-  React SSR streaming with Suspense works by adding JS code to the end of the
-  HTML to update the suspended element in the client side. However, there are 2
-  issues when integrating it in Vite with React's `renderToPipeableStream` API:
+export async function render({
+  req,
+  res,
+  head,
+}: {
+  head: string;
+  req: express.Request;
+  res: express.Response;
+}) {
+  // Convert the express request to a fetch request
+  const url = new URL(req.originalUrl || req.url, "https://localhost:3000")
+    .href;
 
-  1. The API requires a parent element for Suspense for the above behavior to
-     work, otherwise suspended elements will be awaited in-place, resulting in
-     slow streaming.
+  const request = new Request(url, {
+    method: req.method,
+    headers: (() => {
+      const headers = new Headers();
+      for (const [key, value] of Object.entries(req.headers)) {
+        headers.set(key, value as any);
+      }
+      return headers;
+    })(),
+  });
 
-  2. The API stalls the stream to later append the JS code, causing us to unable
-     to add the trailing HTML code (the part after `<!--app-html-->` in index.html).
-     This is because React assumes full control of the entire HTML output, which
-     isn't feasible here as Vite requires HTML files as entrypoints and for bundling.
+  // Create a request handler
+  const handler = createRequestHandler({
+    request,
+    createRouter: () => {
+      const router = createRouter();
 
-  The solution here is to ensure a parent element (`<main>` in `<App/>`), and a
-  custom element (`<vite-streaming-end>`) to detect when React has finished
-  rendering its main content so we can render Vite's HTML after it.
-*/
+      // Update each router instance with the head info from vite
+      router.update({
+        context: {
+          ...router.options.context,
+          head: head,
+        },
+      });
+      return router;
+    },
+  });
 
-export function render(_url: string, options?: RenderToPipeableStreamOptions) {
-  return renderToPipeableStream(
-    <StrictMode>
-      <App />
-      <vite-streaming-end></vite-streaming-end>
-    </StrictMode>,
-    options,
+  // Let's use the default stream handler to create the response
+  const response = await handler(({ request, responseHeaders, router }) =>
+    renderRouterToStream({
+      request,
+      responseHeaders,
+      router,
+      children: <RouterServer router={router} />,
+    }),
   );
+
+  // Convert the fetch response back to an express response
+  res.statusMessage = response.statusText;
+  res.status(response.status);
+
+  for (const [name, value] of response.headers.entries()) {
+    res.setHeader(name, value);
+  }
+
+  // Stream the response body
+  return pipeline(response.body as any, res);
 }
